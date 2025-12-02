@@ -10,6 +10,10 @@ This project provides a set of scripts to find, unpack, and display wallpapers f
 
 -   **Video Wallpaper Support:** Plays video wallpapers in a loop using the efficient `mpvpaper`.
 -   **Web Wallpaper Support:** Renders web-based wallpapers (HTML, JS, CSS) using a lightweight GTK4 WebView.
+-   **Multi-Monitor Support:** Three modes for handling multiple monitors:
+    -   **Clone Mode:** Same wallpaper on all monitors
+    -   **Per-Monitor Mode:** Different wallpapers for each monitor
+    -   **Stretch Mode:** Single wallpaper stretched across monitors
 -   **Native Performance:** Uses Wayland-native tools for low resource consumption.
 -   **CLI Control:** Easy-to-use command-line interface to set and stop wallpapers.
 
@@ -65,31 +69,82 @@ This project provides a set of scripts to find, unpack, and display wallpapers f
 
 ## Usage
 
-1.  **Find a Wallpaper ID:**
+### Basic Usage
+
+1.  **Find Your Monitor Names:**
+    ```bash
+    ./hyprpaper-we.sh list-monitors
+    ```
+    This will show your connected monitors (e.g., DP-1, DP-2, HDMI-A-1, etc.)
+
+2.  **Find a Wallpaper ID:**
     Navigate to your Wallpaper Engine workshop directory:
-    `ls ~/.steam/steam/steamapps/workshop/content/431960`
+    ```bash
+    ls ~/.steam/steam/steamapps/workshop/content/431960
+    ```
     The numbered directories are the IDs.
 
-2.  **Set a wallpaper:**
-    ```bash
-    ./hyprpaper-we.sh <ID_of_the_wallpaper>
-    ```
-    Example:
-    ```bash
-    ./hyprpaper-we.sh 822865320
-    ```
+### Multi-Monitor Modes
 
-3.  **Stop the current wallpaper:**
-    ```bash
-    ./hyprpaper-we.sh stop
-    ```
-OR
-    **Use the GUI:**
-    ```
-    python gui.py
-    ```
+**Clone Mode** - Same wallpaper on all monitors:
+```bash
+./hyprpaper-we.sh clone <WALLPAPER_ID>
+```
+Example:
+```bash
+./hyprpaper-we.sh clone 822865320
+```
+
+**Per-Monitor Mode** - Different wallpapers for each monitor:
+```bash
+./hyprpaper-we.sh per-monitor MONITOR1:ID1 MONITOR2:ID2 ...
+```
+Example:
+```bash
+./hyprpaper-we.sh per-monitor DP-1:822865320 DP-2:987654321
+```
+
+**Stretch Mode** - Single wallpaper across all monitors:
+```bash
+./hyprpaper-we.sh stretch <WALLPAPER_ID>
+```
+Example:
+```bash
+./hyprpaper-we.sh stretch 822865320
+```
+*Note: Stretch mode currently displays on the primary monitor. Full multi-monitor stretch requires additional implementation.*
+
+**Legacy Mode** - For backwards compatibility, using just the ID defaults to clone mode:
+```bash
+./hyprpaper-we.sh <WALLPAPER_ID>
+```
+
+**Stop All Wallpapers:**
+```bash
+./hyprpaper-we.sh stop
+```
+
+**GUI (Recommended):**
+```bash
+python gui.py
+```
+
+The GUI now fully supports all multi-monitor modes:
+- Use the **Mode** dropdown to select Clone, Per-Monitor, or Stretch mode
+- In **Per-Monitor** mode, use the **Monitor** dropdown to select which monitor to configure
+- Click any wallpaper to apply it according to the selected mode
+- The status bar shows current configuration and detected monitors
+- Settings are automatically saved and persist across sessions
     
+## Configuration
+
+Multi-monitor settings are automatically saved to `~/.config/hyprpaper-we/config` and will persist across sessions. The config file stores:
+- Current mode (clone, per-monitor, or stretch)
+- Wallpaper IDs for each mode
+- Monitor assignments (for per-monitor mode)
+
 ## Future Improvements
 
 -   Support for wallpaper properties (colors, speed, etc.).
--   Better multi-monitor support.
+-   Enhanced stretch mode with proper multi-monitor spanning for web wallpapers.
+-   GUI updates to support multi-monitor configuration.

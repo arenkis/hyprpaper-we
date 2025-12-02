@@ -20,16 +20,35 @@ class WallpaperSelectorApp(Gtk.Application):
         self.win = None
         self.ensure_config_dir()
         self.load_state()
+        self.monitors = self.get_monitors()
+        self.current_mode = self.state.get('mode', 'clone')
+        self.monitor_selections = self.state.get('monitor_selections', {})
 
     def ensure_config_dir(self):
         os.makedirs(CONFIG_DIR, exist_ok=True)
+
+    def get_monitors(self):
+        """Get list of connected monitors"""
+        try:
+            result = subprocess.run([SCRIPT_PATH, 'list-monitors'], 
+                                  capture_output=True, text=True, check=True)
+            monitors = [line.strip() for line in result.stdout.split('\n') 
+                       if line.strip() and line.strip() != 'Available monitors:']
+            return monitors
+        except Exception as e:
+            print(f"Error getting monitors: {e}")
+            return []
 
     def load_state(self):
         if os.path.exists(CONFIG_FILE):
             with open(CONFIG_FILE, 'r') as f:
                 self.state = json.load(f)
         else:
-            self.state = {'last_wallpaper_id': None}
+            self.state = {
+                'last_wallpaper_id': None,
+                'mode': 'clone',
+                'monitor_selections': {}
+            }
 
     def save_state(self):
         with open(CONFIG_FILE, 'w') as f:
@@ -85,6 +104,39 @@ class WallpaperSelectorApp(Gtk.Application):
     def build_ui(self):
         titlebar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         titlebar.add_css_class("titlebar")
+        titlebar.set_margin_top(6)
+        titlebar.set_margin_bottom(6)
+        titlebar.set_margin_start(6)
+        titlebar.set_margin_end(6)
+
+        # Mode selector
+        mode_label = Gtk.Label(label="Mode:")
+        titlebar.append(mode_label)
+        
+        self.mode_dropdown = Gtk.DropDown()
+        mode_options = Gtk.StringList.new(["Clone", "Per-Monitor", "Stretch"])
+        self.mode_dropdown.set_model(mode_options)
+        
+        # Set initial mode
+        mode_index = {'clone': 0, 'per-monitor': 1, 'stretch': 2}.get(self.current_mode, 0)
+        self.mode_dropdown.set_selected(mode_index)
+        self.mode_dropdown.connect('notify::selected', self.on_mode_changed)
+        titlebar.append(self.mode_dropdown)
+
+        # Monitor selector (for per-monitor mode)
+        monitor_label = Gtk.Label(label="Monitor:")
+        self.monitor_label = monitor_label
+        titlebar.append(monitor_label)
+        
+        self.monitor_dropdown = Gtk.DropDown()
+        if self.monitors:
+            monitor_options = Gtk.StringList.new(self.monitors)
+            self.monitor_dropdown.set_model(monitor_options)
+            self.monitor_dropdown.connect('notify::selected', self.on_monitor_changed)
+        titlebar.append(self.monitor_dropdown)
+        
+        # Update visibility based on mode
+        self.update_monitor_selector_visibility()
 
         stop_button = Gtk.Button(label="Stop Wallpaper")
         stop_button.connect('clicked', self.on_stop_clicked)
@@ -97,6 +149,30 @@ class WallpaperSelectorApp(Gtk.Application):
 
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         main_box.append(titlebar)
+        
+        # Info box to show monitor info and current selections
+        info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        info_box.set_margin_start(10)
+        info_box.set_margin_end(10)
+        info_box.set_margin_top(5)
+        info_box.set_margin_bottom(5)
+        
+        # Monitor info
+        monitor_info_label = Gtk.Label()
+        if self.monitors:
+            monitor_info_label.set_markup(f"<small>Detected monitors: {', '.join(self.monitors)}</small>")
+        else:
+            monitor_info_label.set_markup("<small>No monitors detected</small>")
+        monitor_info_label.set_xalign(0)
+        info_box.append(monitor_info_label)
+        
+        # Status bar to show current selections
+        self.status_bar = Gtk.Label()
+        self.update_status_bar()
+        self.status_bar.set_xalign(0)
+        info_box.append(self.status_bar)
+        
+        main_box.append(info_box)
 
         scrolled_window = Gtk.ScrolledWindow()
         scrolled_window.set_vexpand(True)
@@ -173,13 +249,82 @@ class WallpaperSelectorApp(Gtk.Application):
         button.add_css_class("wallpaper-card")
         return button
 
+    def on_mode_changed(self, dropdown, param):
+        mode_names = ['clone', 'per-monitor', 'stretch']
+        self.current_mode = mode_names[dropdown.get_selected()]
+        self.state['mode'] = self.current_mode
+        self.save_state()
+        self.update_monitor_selector_visibility()
+        self.update_status_bar()
+        print(f"Mode changed to: {self.current_mode}")
+
+    def on_monitor_changed(self, dropdown, param):
+        self.update_status_bar()
+
+    def update_monitor_selector_visibility(self):
+        """Show/hide monitor selector based on mode"""
+        visible = (self.current_mode == 'per-monitor')
+        self.monitor_label.set_visible(visible)
+        self.monitor_dropdown.set_visible(visible)
+
+    def update_status_bar(self):
+        """Update status bar with current selections"""
+        if self.current_mode == 'clone':
+            last_id = self.state.get('last_wallpaper_id')
+            if last_id:
+                self.status_bar.set_text(f"Clone mode: Wallpaper {last_id} on all monitors")
+            else:
+                self.status_bar.set_text("Clone mode: Select a wallpaper to apply to all monitors")
+        elif self.current_mode == 'per-monitor':
+            if self.monitor_selections:
+                status = "Per-monitor: " + ", ".join([f"{mon}:{wid}" for mon, wid in self.monitor_selections.items()])
+                self.status_bar.set_text(status)
+            else:
+                selected_monitor = self.monitors[self.monitor_dropdown.get_selected()] if self.monitors else "none"
+                self.status_bar.set_text(f"Per-monitor mode: Select wallpaper for {selected_monitor}")
+        elif self.current_mode == 'stretch':
+            last_id = self.state.get('last_wallpaper_id')
+            if last_id:
+                self.status_bar.set_text(f"Stretch mode: Wallpaper {last_id} stretched across monitors")
+            else:
+                self.status_bar.set_text("Stretch mode: Select a wallpaper to stretch across all monitors")
+
     def on_wallpaper_selected(self, button, wallpaper_id):
         print(f"Selected wallpaper ID: {wallpaper_id}")
         try:
-            subprocess.run([SCRIPT_PATH, wallpaper_id], check=True)
-            self.state['last_wallpaper_id'] = wallpaper_id
+            if self.current_mode == 'clone':
+                # Clone mode: same wallpaper on all monitors
+                subprocess.run([SCRIPT_PATH, 'clone', wallpaper_id], check=True)
+                self.state['last_wallpaper_id'] = wallpaper_id
+                print(f"Successfully set wallpaper {wallpaper_id} in clone mode.")
+                
+            elif self.current_mode == 'per-monitor':
+                # Per-monitor mode: set wallpaper for selected monitor
+                if not self.monitors:
+                    print("Error: No monitors detected")
+                    return
+                
+                selected_monitor = self.monitors[self.monitor_dropdown.get_selected()]
+                self.monitor_selections[selected_monitor] = wallpaper_id
+                self.state['monitor_selections'] = self.monitor_selections
+                
+                # Build command with all monitor:wallpaper pairs
+                args = [SCRIPT_PATH, 'per-monitor']
+                for mon, wid in self.monitor_selections.items():
+                    args.append(f"{mon}:{wid}")
+                
+                subprocess.run(args, check=True)
+                print(f"Successfully set wallpaper {wallpaper_id} on {selected_monitor}")
+                
+            elif self.current_mode == 'stretch':
+                # Stretch mode: single wallpaper across all monitors
+                subprocess.run([SCRIPT_PATH, 'stretch', wallpaper_id], check=True)
+                self.state['last_wallpaper_id'] = wallpaper_id
+                print(f"Successfully set wallpaper {wallpaper_id} in stretch mode.")
+            
             self.save_state()
-            print("Successfully launched wallpaper and saved state.")
+            self.update_status_bar()
+            print("State saved.")
         except subprocess.CalledProcessError as e:
             print(f"Error launching wallpaper script: {e}")
         except FileNotFoundError:
@@ -231,3 +376,6 @@ Terminal=false
 if __name__ == "__main__":
     app = WallpaperSelectorApp()
     app.run(sys.argv)
+
+
+
